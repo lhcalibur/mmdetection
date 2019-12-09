@@ -160,12 +160,21 @@ def retinaface_anchor_target_single(flat_anchors,
                                       target_means, target_stds)
         bbox_targets[pos_inds, :] = pos_bbox_targets
         bbox_weights[pos_inds, :] = 1.0
-        pos_gt_landms = gt_landms[sampling_result.pos_assigned_gt_inds, :]
-        pos_landm_targets = landm2delta(sampling_result.pos_bboxes,
-                                        pos_gt_landms, target_means,
-                                        target_stds)
-        landms_targets[pos_inds, :] = pos_landm_targets
-        landms_weights[pos_inds, :] = 1.0
+        # gt_labels indicate no landmarks gt
+        landm_pos_inds = torch.nonzero(gt_labels[sampling_result.pos_assigned_gt_inds] != -1)
+        if landm_pos_inds.numel() != 0:
+            landm_pos_inds = landm_pos_inds.squeeze(1)
+        if len(landm_pos_inds) > 0:
+            landm_pos_assigned_gt_inds = sampling_result.pos_assigned_gt_inds[landm_pos_inds]
+            pos_gt_landms = gt_landms[landm_pos_assigned_gt_inds, :]
+            landm_pos_bboxes = sampling_result.pos_bboxes[landm_pos_inds]
+            pos_landm_targets = landm2delta(landm_pos_bboxes,
+                                            pos_gt_landms, target_means,
+                                            target_stds)
+            landms_targets[landm_pos_inds, :] = pos_landm_targets
+            landms_weights[landm_pos_inds, :] = 1.0
+        # set pos gt_labels -1 to 1
+        gt_labels[sampling_result.pos_assigned_gt_inds.unique()] = 1
         if gt_labels is None:
             labels[pos_inds] = 1
         else:

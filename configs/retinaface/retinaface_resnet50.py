@@ -22,9 +22,10 @@ model = dict(
         anchor_ratios=[1.0],
         anchor_scales=[2, 16],
         anchor_strides=[8, 16, 32],
-        loss_bbox=dict(
-            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=2.0)),
-)
+        loss_cls=dict(
+            type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+        loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=2.0),
+        loss_landm=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)))
 # training and testing settings
 cudnn_benchmark = True
 train_cfg = dict(

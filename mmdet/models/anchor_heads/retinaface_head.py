@@ -18,7 +18,7 @@ class RetinaFaceHead(AnchorHead):
                  in_channels,
                  feat_channels=256,
                  loss_landm=dict(
-                     type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
+                     type='SmoothL1Loss', beta=1.0, loss_weight=1.0),
                  **kwargs):
         num_classes = 2
         super(RetinaFaceHead, self).__init__(num_classes, in_channels, feat_channels, **kwargs)
@@ -48,13 +48,13 @@ class RetinaFaceHead(AnchorHead):
     def loss_single(self, cls_score, bbox_pred, landm_pred, labels, label_weights,
                     bbox_targets, bbox_weights, landms_targets, landms_weights,
                     num_total_samples, cfg):
-        loss_cls, loss_bbox = super().loss_single(
+        loss_cls, loss_bbox = super(RetinaFaceHead, self).loss_single(
             cls_score, 
             bbox_pred, 
             labels, 
             label_weights,
             bbox_targets, 
-            bbox_targets, 
+            bbox_weights, 
             num_total_samples, 
             cfg)
         # landmarks loss
