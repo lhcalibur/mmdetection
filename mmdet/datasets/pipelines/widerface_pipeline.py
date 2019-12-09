@@ -252,15 +252,24 @@ class WiderFacePreProc(object):
         landm_t[:, 0::2] /= width
         landm_t[:, 1::2] /= height
 
-        labels_t = np.expand_dims(labels_t, 1)
+        # labels_t = np.expand_dims(labels_t, 1)
+        labels_t = labels_t.astype(np.long)
         # targets_t = np.hstack((boxes_t, landm_t, labels_t))
+
+        # new shape
+        height, width, _ = image_t.shape
+        boxes_t[:, 0::2] *= width
+        boxes_t[:, 1::2] *= height
+
+        landm_t[:, 0::2] *= width
+        landm_t[:, 1::2] *= height
 
         results['img'] = image_t
         results['img_shape'] = image_t.shape
         results['pad_shape'] = image_t.shape  # in case that there is no padding
         results['boxes'] = boxes_t
         results['labels'] = labels_t
-        results['landm'] = landm_t
+        results['landms'] = landm_t
         return results
 
     def __repr__(self):
@@ -273,7 +282,7 @@ class WiderRetinaFaceFormatBundle(object):
         if 'img' in results:
             img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
             results['img'] = DC(to_tensor(img), stack=True)
-        for key in ['boxes', 'labels', 'landm']:
+        for key in ['boxes', 'labels', 'landms']:
             if key not in results:
                 continue
             results[key] = DC(to_tensor(results[key]))

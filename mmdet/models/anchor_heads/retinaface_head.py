@@ -3,12 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import normal_init
-from mmdet.core import anchor_target, multi_apply
 
 from ..registry import HEADS
+from ..builder import build_loss
 from ..utils import ConvModule, bias_init_with_prob
 from .anchor_head import AnchorHead
-from ...core import force_fp32
+from mmdet.core import force_fp32, multi_apply
+from mmdet.core import retinaface_anchor_target
 
 
 @HEADS.register_module
@@ -16,9 +17,12 @@ class RetinaFaceHead(AnchorHead):
     def __init__(self,
                  in_channels,
                  feat_channels=256,
+                 loss_landm=dict(
+                     type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
                  **kwargs):
         num_classes = 2
         super(RetinaFaceHead, self).__init__(num_classes, in_channels, feat_channels, **kwargs)
+        self.loss_landm = build_loss(loss_landm)
 
     def _init_layers(self):
         self.ssh = SSH(self.in_channels, self.feat_channels)
@@ -41,11 +45,34 @@ class RetinaFaceHead(AnchorHead):
         ladm_reg = self.ladm_reg(x)
         return face_cls, bbox_reg, ladm_reg
 
-    @force_fp32(apply_to=('bbox_preds', 'landm_preds', 'cls_scores'))
+    def loss_single(self, cls_score, bbox_pred, landm_pred, labels, label_weights,
+                    bbox_targets, bbox_weights, landms_targets, landms_weights,
+                    num_total_samples, cfg):
+        loss_cls, loss_bbox = super().loss_single(
+            cls_score, 
+            bbox_pred, 
+            labels, 
+            label_weights,
+            bbox_targets, 
+            bbox_targets, 
+            num_total_samples, 
+            cfg)
+        # landmarks loss
+        landms_targets = landms_targets.reshape(-1, 10)
+        landms_weights = landms_weights.reshape(-1, 10)
+        landm_pred = landm_pred.permute(0, 2, 3, 1).reshape(-1, 10)
+        loss_landm = self.loss_landm(
+            landm_pred,
+            landms_targets,
+            landms_weights,
+            avg_factor=num_total_samples)
+        return loss_cls, loss_bbox, loss_landm
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'landm_preds'))
     def loss(self,
+             cls_scores,
              bbox_preds,
              landm_preds,
-             cls_scores,
              gt_bboxes,
              gt_landms,
              gt_labels,
@@ -60,10 +87,11 @@ class RetinaFaceHead(AnchorHead):
         anchor_list, valid_flag_list = self.get_anchors(
             featmap_sizes, img_metas, device=device)
         label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
-        cls_reg_targets = anchor_target(
+        cls_reg_targets = retinaface_anchor_target(
             anchor_list,
             valid_flag_list,
             gt_bboxes,
+            gt_landms,
             img_metas,
             self.target_means,
             self.target_stds,
@@ -75,20 +103,27 @@ class RetinaFaceHead(AnchorHead):
         if cls_reg_targets is None:
             return None
         (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,
-         num_total_pos, num_total_neg) = cls_reg_targets
+         landm_targets_list, landm_weights_list, num_total_pos,
+         num_total_neg) = cls_reg_targets
         num_total_samples = (
             num_total_pos + num_total_neg if self.sampling else num_total_pos)
-        losses_cls, losses_bbox = multi_apply(
+        losses_cls, losses_bbox, losses_landm = multi_apply(
             self.loss_single,
             cls_scores,
             bbox_preds,
+            landm_preds,
             labels_list,
             label_weights_list,
             bbox_targets_list,
             bbox_weights_list,
+            landm_targets_list,
+            landm_weights_list,
             num_total_samples=num_total_samples,
             cfg=cfg)
-        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox)
+        return dict(
+            loss_cls=losses_cls,
+            loss_bbox=losses_bbox,
+            losses_landms=losses_landm)
 
 
 def conv_bn(inp, oup, stride=1, leaky=0):
