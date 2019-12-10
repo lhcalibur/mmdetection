@@ -8,7 +8,7 @@ model = dict(
         depth=50,
         num_stages=4,
         out_indices=(1, 2, 3),
-        frozen_stages=1,
+        frozen_stages=-1,
         style='pytorch'),
     neck=dict(
         type='FPN',
@@ -46,16 +46,20 @@ train_cfg = dict(
     allowed_border=0,
     pos_weight=-1,
 )
-test_cfg = dict()
+test_cfg = dict(
+    nms_pre=5000,
+    min_bbox_size=0,
+    score_thr=0.02,
+    nms=dict(type='nms', iou_thr=0.4),
+    max_per_img=750)
 dataset_type = 'WIDERRetinaFaceDataset'
 data_root = '/data/Datasets/widerface'
+img_norm_cfg = dict(mean=(104, 117, 123), std=(1.0, 1.0, 1.0), to_rgb=False)
 train_pipeline = [
     dict(
         type='WiderFacePreProc',
         img_size=864,
-        means=(104, 117, 123),
-        std=(1.0, 1.0, 1.0),
-        to_rgb=False),
+        **img_norm_cfg),
     dict(type='WiderRetinaFaceFormatBundle'),
     dict(
         type='Collect',
@@ -63,26 +67,42 @@ train_pipeline = [
         meta_keys=['img_norm_cfg', 'img_shape', 'pad_shape']),
 ]
 test_pipeline = [
-    dict(type='ImageToTensor', keys=['img']),
+    dict(
+        type='MultiScaleFlipAug',
+        img_scale=(1333, 800),
+        flip=False,
+        transforms=[
+            dict(type='Resize', keep_ratio=True),
+            dict(type='RandomFlip'),
+            dict(type='Normalize', **img_norm_cfg),
+            dict(type='Pad', size_divisor=32),
+            dict(type='ImageToTensor', keys=['img']),
+            dict(type='Collect', keys=['img']),
+        ]),
+    # dict(type='WiderRetinaFaceFormatBundle'),
+    # dict(
+    #     type='Collect',
+    #     keys=['img'],
+    #     meta_keys=['img_norm_cfg', 'img_shape', 'pad_shape']),
 ]
 data = dict(
-    imgs_per_gpu=8,
+    imgs_per_gpu=6,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
         txt_path=os.path.join(data_root, 'train/label.txt'),
         ann_file=None,
-        pipeline=train_pipeline
-        ),
+        pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
         txt_path=os.path.join(data_root, 'val/label.txt'),
-        ),
+        ann_file=None,
+        pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
         txt_path=os.path.join(data_root, 'test/label.txt'),
         ann_file=None,
-        ))
+        pipeline=test_pipeline))
 # optimizer
 optimizer = dict(type='SGD', lr=1e-3, momentum=0.9, weight_decay=5e-4)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
@@ -92,7 +112,7 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=500,
     warmup_ratio=1e-6,
-    step=[8, 11])
+    step=1)
 checkpoint_config = dict(interval=1)
 # yapf:disable
 log_config = dict(
