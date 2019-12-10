@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from mmdet.core.anchor import anchor_inside_flags
 from mmdet.core.bbox import PseudoSampler, assign_and_sample, bbox2delta, build_assigner
 from mmdet.core.anchor.anchor_target import images_to_levels, unmap
@@ -32,6 +33,34 @@ def landm2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
 
     deltas = deltas.reshape(batch_size, -1)
     return deltas
+
+
+def delta2landm(rois,
+                deltas,
+                means=[0, 0, 0, 0],
+                stds=[1, 1, 1, 1],
+                max_shape=None):
+    deltas = deltas.reshape(deltas.size(0), 5, 2)
+    means = deltas.new_tensor(means[:2]).repeat(1, 5, deltas.size(2) // 2)
+    stds = deltas.new_tensor(stds[:2]).repeat(1, 5, deltas.size(2) // 2)
+    denorm_deltas = deltas * stds + means
+    dx = denorm_deltas[:, :, 0::2]
+    dy = denorm_deltas[:, :, 1::2]
+    # Compute center of each roi
+    px = ((rois[:, 0] + rois[:, 2]) * 0.5).unsqueeze(1).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, 1] + rois[:, 3]) * 0.5).unsqueeze(1).unsqueeze(1).expand_as(dy)
+    # Compute width/height of each roi
+    pw = (rois[:, 2] - rois[:, 0] + 1.0).unsqueeze(1).unsqueeze(1).expand_as(dx)
+    ph = (rois[:, 3] - rois[:, 1] + 1.0).unsqueeze(1).unsqueeze(1).expand_as(dy)
+    # Use network energy to shift the center of each roi
+    gx = torch.addcmul(px, 1, pw, dx)  # gx = px + pw * dx
+    gy = torch.addcmul(py, 1, ph, dy)  # gy = py + ph * dy
+    if max_shape is not None:
+        gx = gx.clamp(min=0, max=max_shape[1] - 1)
+        gy = gy.clamp(min=0, max=max_shape[0] - 1)
+    landms = torch.stack([gx, gy], dim=-1).view_as(deltas).reshape(-1, 10)
+    return landms
+
 
 def retinaface_anchor_target(anchor_list,
                   valid_flag_list,

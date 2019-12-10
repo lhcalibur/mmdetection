@@ -223,9 +223,9 @@ def _resize(image, insize):
 @PIPELINES.register_module
 class WiderFacePreProc(object):
 
-    def __init__(self, img_size, means, std, to_rgb=False):
+    def __init__(self, img_size, mean, std, to_rgb=False):
         self.img_size = img_size
-        self.means = np.array(means, dtype=np.float32)
+        self.mean = np.array(mean, dtype=np.float32)
         self.std = np.array(std, dtype=np.float32)
         self.to_rgb = to_rgb
 
@@ -239,13 +239,13 @@ class WiderFacePreProc(object):
 
         image_t, boxes_t, labels_t, landm_t, pad_image_flag = _crop(image, boxes, labels, landm, self.img_size)
         image_t = _distort(image_t)
-        image_t = _pad_to_square(image_t, self.means, pad_image_flag)
+        image_t = _pad_to_square(image_t, self.mean, pad_image_flag)
         image_t, boxes_t, landm_t = _mirror(image_t, boxes_t, landm_t)
         height, width, _ = image_t.shape
         image_t = _resize(image_t, self.img_size)
-        image_t = mmcv.imnormalize(image_t, self.means, self.std, self.to_rgb)
+        image_t = mmcv.imnormalize(image_t, self.mean, self.std, self.to_rgb)
         results['img_norm_cfg'] = dict(
-            mean=self.means, std=self.std, to_rgb=self.to_rgb)
+            mean=self.mean, std=self.std, to_rgb=self.to_rgb)
         boxes_t[:, 0::2] /= width
         boxes_t[:, 1::2] /= height
 
@@ -280,7 +280,10 @@ class WiderFacePreProc(object):
 class WiderRetinaFaceFormatBundle(object):
     def __call__(self, results):
         if 'img' in results:
-            img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
+            img = results['img']
+            # results['img_shape'] = img.shape
+            # results['pad_shape'] = img.shape  # in case that there is no padding
+            img = np.ascontiguousarray(img.transpose(2, 0, 1))
             results['img'] = DC(to_tensor(img), stack=True)
         for key in ['boxes', 'labels', 'landms']:
             if key not in results:
